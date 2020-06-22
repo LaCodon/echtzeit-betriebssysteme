@@ -16,41 +16,42 @@ typedef struct {
 
 gpioISR_t gpioISR[GPIO_COUNT];
 
+// Init peripheral data struct
 struct bcm2837_peripheral gpio = {GPIO_BASE};
 
 // Access physical memory via /dev/mem (kernel call)
-int map_peripherals(struct bcm2837_peripheral *p) {
-    if ((p->mem_fd = open("/dev/mem", O_RDWR | O_SYNC)) < 0) {
+int map_peripherals() {
+    if ((gpio.mem_fd = open("/dev/mem", O_RDWR | O_SYNC)) < 0) {
         printf("Fehler beim Öffnen von /dev/mem. Überprüfe Berechtigungen.\n");
         return -1;
     }
 
     // mmap creates a new mapping in the virtual address space
-    p->map = mmap(
+    gpio.map = mmap(
             NULL,
             BLOCK_SIZE,
             PROT_READ | PROT_WRITE,
             MAP_SHARED,
-            p->mem_fd,
-            p->addr_p
+            gpio.mem_fd,
+            gpio.addr_p
     );
 
     // file descriptor can be closed immediately according to man page
-    close(p->mem_fd);
+    close(gpio.mem_fd);
 
-    if (p->map == MAP_FAILED) {
+    if (gpio.map == MAP_FAILED) {
         perror("mmap");
         return -1;
     }
 
-    p->addr = (volatile unsigned int *) p->map;
+    gpio.addr = (volatile unsigned int *) gpio.map;
 
     return 0;
 }
 
 // Remove physical memory mapping
-void unmap_peripherals(struct bcm2837_peripheral *p) {
-    munmap(p->map, BLOCK_SIZE);
+void unmap_peripherals() {
+    munmap(gpio.map, BLOCK_SIZE);
 }
 
 // Simulates interrupts via polling
@@ -62,9 +63,10 @@ static void *pthISRThread(void *x) {
     char buf[64];
     int level;
 
+    // file to poll
     sprintf(buf, "/sys/class/gpio/gpio%d/value", isr->gpio);
 
-    isr->fd = -1; /* no fd assigned */
+    isr->fd = -1;
 
     if ((fd = open(buf, O_RDONLY)) < 0) {
         printf("Failed to get GPIO value");
@@ -139,6 +141,7 @@ int init_isr_func(unsigned int pin, unsigned int edge, void *f) {
     char buf[64];
     char *edge_str[] = {"rising\n", "falling\n", "both\n"};
 
+    // do nothing if thread is already running
     if (gpioISR[pin].pth != 0) return 1;
 
     // enblae gpio
@@ -198,6 +201,7 @@ int del_isr_func(unsigned int pin) {
     return 0;
 }
 
+// Return monotonic clock time in us
 uint64_t get_clock_time() {
     struct timespec ts;
 
@@ -207,8 +211,10 @@ uint64_t get_clock_time() {
         return 0;
 }
 
+// Helper var for read_input_freq()
 volatile int freqCount = 0;
 
+// Helper ISR for read_input_freq()
 void counter(int pin, int level) {
     if (level != GPIO_TIMEOUT) freqCount++;
 }
@@ -227,6 +233,7 @@ double read_input_freq(unsigned int pin, useconds_t sampleinterval) {
         printf("Fatal: errno: %d\n", err);
         return 0.0f;
     }
+    // count interrupts for sampleinterval us
     usleep(sampleinterval);
     del_isr_func(pin);
 

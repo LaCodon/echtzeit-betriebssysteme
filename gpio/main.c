@@ -20,12 +20,12 @@ volatile int count = 0;
 
 int main() {
 
-    if (map_peripherals(&gpio) == -1) {
+    if (map_peripherals() == -1) {
         printf("Fehler beim Mapping des physikalischen GPIO-Registers in den virtuellen Speicherbereich.\n");
         return -1;
     }
 
-    //INP_GPIO(PIN18);
+    INP_GPIO(PIN18);
     //OUT_GPIO(PIN18);
 
     //init_isr_func(PIN18, EDGE_RISING, isr);
@@ -37,16 +37,21 @@ int main() {
 //
 //        GPIO_CLR |= 1 << PIN18;
 
-        double freq = read_input_freq(PIN17, DEFAULT_SAMPLE_TIME);
-        printf("%.2f Hz\n", freq);
+//        double freq = read_input_freq(PIN17, DEFAULT_SAMPLE_TIME);
+//        printf("%.2f Hz\n", freq);
 
 //        double litre = (double) count / RISING_EDGE_PER_LITRE;
 //
 //        printf("count: %d  -> %.3f Liter\n", count, litre);
-//        sleep(1);
+        sleep(1);
+        if (GPIO_READ(PIN18)) {
+            printf("HIGH\n");
+        } else {
+            printf("LOW\n");
+        }
     }
 
-    unmap_peripherals(&gpio);
+    unmap_peripherals();
 
     return 0;
 }
