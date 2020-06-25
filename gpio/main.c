@@ -33,22 +33,22 @@ int main() {
     while (1) {
 //        usleep(950000);
 //        GPIO_SET |= 1 << PIN18;
-//        sleep(1);
+        sleep(1);
 //
 //        GPIO_CLR |= 1 << PIN18;
 
-//        double freq = read_input_freq(PIN17, DEFAULT_SAMPLE_TIME);
-//        printf("%.2f Hz\n", freq);
+        double freq = read_input_freq(PIN17, DEFAULT_SAMPLE_TIME);
+        printf("%.2f Hz\n", freq);
 
 //        double litre = (double) count / RISING_EDGE_PER_LITRE;
 //
 //        printf("count: %d  -> %.3f Liter\n", count, litre);
-        sleep(1);
-        if (GPIO_READ(PIN18)) {
-            printf("HIGH\n");
-        } else {
-            printf("LOW\n");
-        }
+//        sleep(1);
+//        if (GPIO_READ(PIN18)) {
+//            printf("HIGH\n");
+//        } else {
+//            printf("LOW\n");
+//        }
     }
 
     unmap_peripherals();
