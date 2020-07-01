@@ -12,11 +12,15 @@
 
 volatile int count = 0;
 
-//void isr(int pin, int level) {
-//    if (level == GPIO_ON) {
-//        count++;
-//    }
-//}
+void isr(int pin, int level) {
+    if (level == GPIO_ON) {
+        count++;
+
+        if (count >= RISING_EDGE_PER_LITRE) {
+            GPIO_SET |= 1 << PIN17;
+        }
+    }
+}
 
 int main() {
 
@@ -28,28 +32,38 @@ int main() {
     INP_GPIO(PIN18);
     //OUT_GPIO(PIN18);
 
-    //init_isr_func(PIN18, EDGE_RISING, isr);
+    INP_GPIO(PIN17);
+    OUT_GPIO(PIN17);
+    GPIO_CLR |= 1 << PIN17;
+
+
+    init_isr_func(PIN18, EDGE_RISING, isr);
 
     while (1) {
 //        usleep(950000);
 //        GPIO_SET |= 1 << PIN18;
-        sleep(1);
 //
 //        GPIO_CLR |= 1 << PIN18;
 
-        double freq = read_input_freq(PIN17, DEFAULT_SAMPLE_TIME);
-        printf("%.2f Hz\n", freq);
+//        double freq = read_input_freq(PIN17, DEFAULT_SAMPLE_TIME) * 16;
+//        printf("%.2f Hz\n", freq);
 
-//        double litre = (double) count / RISING_EDGE_PER_LITRE;
+        double litre = (double) count / RISING_EDGE_PER_LITRE;
+        printf("count: %d  -> %.3f Liter\n", count, litre);
+
+        if (litre >= 1) {
+            break;
+        }
 //
-//        printf("count: %d  -> %.3f Liter\n", count, litre);
-//        sleep(1);
+        sleep(1);
+
 //        if (GPIO_READ(PIN18)) {
 //            printf("HIGH\n");
 //        } else {
 //            printf("LOW\n");
 //        }
     }
+
 
     unmap_peripherals();
 
