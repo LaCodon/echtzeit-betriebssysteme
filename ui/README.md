@@ -10,7 +10,7 @@ des Feuchtesensors zum Anzeigen in der Oberfläche.
 
 Python venv erzeugen: `python -m venv venv`
 
-Venv aktivieren: `source ./venv/Scripts/activate`
+Venv aktivieren: `source ./venv/bin/activate`
 
 Abhängigkeiten installieren: `pip install -r requirements.txt`
 
