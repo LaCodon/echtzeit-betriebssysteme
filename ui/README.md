@@ -16,7 +16,7 @@ Venv aktivieren: `source ./venv/bin/activate`
 
 Wheel installieren: `pip install wheel`
 
-Build requirements installieren: `sudo apt install libjpeg-dev`
+Build requirements installieren: `sudo apt install libjpeg-dev python3.7-dev`
 
 Abhängigkeiten installieren: `pip install -r requirements.txt`
 
