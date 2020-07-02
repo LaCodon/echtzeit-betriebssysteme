@@ -8,9 +8,15 @@ des Feuchtesensors zum Anzeigen in der Oberfläche.
 
 ## Setup
 
+Python 3.7 wird benötigt!
+
 Python venv erzeugen: `python -m venv venv`
 
 Venv aktivieren: `source ./venv/bin/activate`
+
+Wheel installieren: `pip install wheel`
+
+Build requirements installieren: `sudo apt install libjpeg-dev`
 
 Abhängigkeiten installieren: `pip install -r requirements.txt`
 
