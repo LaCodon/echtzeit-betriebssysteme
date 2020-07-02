@@ -14,9 +14,9 @@ Python venv erzeugen: `python -m venv venv`
 
 Venv aktivieren: `source ./venv/bin/activate`
 
-Wheel installieren: `pip install wheel`
+Build requirements installieren: `sudo apt install libjpeg-dev python3.7-dev libatlas-base-dev`
 
-Build requirements installieren: `sudo apt install libjpeg-dev python3.7-dev`
+Wheel installieren: `pip install wheel`
 
 Abhängigkeiten installieren: `pip install -r requirements.txt`
 
