@@ -1,2 +1,5 @@
 /gpio/cmake-build-debug-remote
 /gpio/.idea
+/gpio/cmake-build-debug
+/ui/venv
+/ui/.vscode

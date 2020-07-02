@@ -7,11 +7,11 @@ typedef void (*callbk_t)();
 
 typedef struct {
     unsigned int gpio;
-    pthread_t *pth;
+    pthread_t pth;
     callbk_t func;
     int timeout;
     int fd;
-    int edge;
+    unsigned int edge;
 } gpioISR_t;
 
 gpioISR_t gpioISR[GPIO_COUNT];
@@ -55,7 +55,7 @@ void unmap_peripherals() {
 }
 
 // Simulates interrupts via polling
-static void *pthISRThread(void *x) {
+_Noreturn static void *pthISRThread(void *x) {
     gpioISR_t *isr = x;
     int retval;
     struct pollfd pfd;
@@ -70,7 +70,6 @@ static void *pthISRThread(void *x) {
 
     if ((fd = open(buf, O_RDONLY)) < 0) {
         printf("Failed to get GPIO value");
-        return NULL;
     }
 
     // store fd because it has to be closed after stopping this thread
@@ -103,35 +102,23 @@ static void *pthISRThread(void *x) {
             printf("poll return error\n");
         }
     }
-
-    return NULL;
 }
 
 // Start "interrupt" thread
-pthread_t *gpioStartThread(void *f, unsigned int pin) {
-    pthread_t *pth;
+void gpioStartThread(void *f, unsigned int pin) {
     pthread_attr_t pthAttr;
 
-    pth = malloc(sizeof(pthread_t));
-
-    if (pth) {
-        if (pthread_attr_init(&pthAttr)) {
-            free(pth);
-            printf("pthread_attr_init failed\n");
-        }
-
-        if (pthread_attr_setstacksize(&pthAttr, STACK_SIZE)) {
-            free(pth);
-            printf("pthread_attr_setstacksize failed\n");
-        }
-
-        if (pthread_create(pth, &pthAttr, f, &gpioISR[pin])) {
-            free(pth);
-            printf("pthread_create failed\n");
-        }
+    if (pthread_attr_init(&pthAttr)) {
+        printf("pthread_attr_init failed\n");
     }
 
-    return pth;
+    if (pthread_attr_setstacksize(&pthAttr, STACK_SIZE)) {
+        printf("pthread_attr_setstacksize failed\n");
+    }
+
+    if (pthread_create(&gpioISR[pin].pth, &pthAttr, f, &gpioISR[pin])) {
+        printf("pthread_create failed\n");
+    }
 }
 
 // Setup GPIO and start listening for interrupts
@@ -174,7 +161,7 @@ int init_isr_func(unsigned int pin, unsigned int edge, void *f) {
     gpioISR[pin].func = f;
     gpioISR[pin].timeout = 1000;
     gpioISR[pin].edge = edge;
-    gpioISR[pin].pth = gpioStartThread(pthISRThread, pin);
+    gpioStartThread(pthISRThread, pin);
 
     if (gpioISR[pin].pth == 0) {
         return ERROR_THREAD_ALLOC_FAIL;
@@ -187,15 +174,14 @@ int init_isr_func(unsigned int pin, unsigned int edge, void *f) {
 int del_isr_func(unsigned int pin) {
     if (gpioISR[pin].pth == 0) return ERROR_ISR_NOT_INITED;
 
-    pthread_cancel(*gpioISR[pin].pth);
-    pthread_join(*gpioISR[pin].pth, NULL);
+    pthread_cancel(gpioISR[pin].pth);
+    pthread_join(gpioISR[pin].pth, NULL);
 
     gpioISR[pin].gpio = 0;
     gpioISR[pin].func = 0;
     gpioISR[pin].timeout = 0;
     gpioISR[pin].edge = 0;
     close(gpioISR[pin].fd);
-    free(gpioISR[pin].pth);
     gpioISR[pin].pth = 0;
 
     return 0;

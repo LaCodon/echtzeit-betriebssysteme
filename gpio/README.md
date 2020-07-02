@@ -31,8 +31,8 @@ Set GPIO g as output
 // set GPIO 18 as output
 // INP and OUT have to be called because bit operators otherwise don't
 // override wrong inital state
-INP_GPIO(PIN18);
-OUT_GPIO(PIN18);
+INP_GPIO(FLOW_SENSOR);
+OUT_GPIO(FLOW_SENSOR);
 ```
 
 ### GPIO_SET
