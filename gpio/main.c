@@ -4,13 +4,12 @@
 #define _GNU_SOURCE
 
 #include <sys/mman.h>
-#include <time.h>
-#include <stdint.h>
-#include <limits.h>
+#include <stdbool.h>
 #include <sched.h>
 
 #include "gpio.h"
 #include "ui.h"
+#include "realtime.h"
 
 // humidity sensor
 #define HUMIDITY_SENSOR 17
@@ -35,7 +34,6 @@ volatile int water_count = 0;
 bool isWatering = false;
 struct config_data config;
 
-cpu_set_t cpuset;
 cond_wait_t checkHumidityCond = {false, PTHREAD_COND_INITIALIZER, PTHREAD_MUTEX_INITIALIZER};
 cond_wait_t reloadConfigCond = {false, PTHREAD_COND_INITIALIZER, PTHREAD_MUTEX_INITIALIZER};
 cond_wait_t waterCountCond = {false, PTHREAD_COND_INITIALIZER, PTHREAD_MUTEX_INITIALIZER};
@@ -142,10 +140,9 @@ _Noreturn void *reload_config() {
 }*/
 
 // call
-_Noreturn void* check_humidity()
-{
+_Noreturn void *check_humidity() {
     double freq;
-    while(1){
+    while (1) {
         pthread_mutex_lock(&checkHumidityCond.pthreadMutex);
         while (!checkHumidityCond.cond)
             pthread_cond_wait(&checkHumidityCond.pthreadCond, &checkHumidityCond.pthreadMutex);
@@ -157,8 +154,7 @@ _Noreturn void* check_humidity()
 #endif
         send_freq_to_ui(freq);
 
-        if(freq > config.arid && !waterCountCond.cond)
-        {
+        if (freq > config.arid && !waterCountCond.cond) {
             waterCountCond.cond = true;
         }
         pthread_mutex_unlock(&checkHumidityCond.pthreadMutex);
@@ -170,7 +166,7 @@ void startAllThreads() {
     reloadConfigCond.cond = true;
     pthread_cond_signal(&checkHumidityCond.pthreadCond);
     pthread_cond_signal(&reloadConfigCond.pthreadCond);
-    if(waterCountCond.cond && !isWatering) {
+    if (waterCountCond.cond && !isWatering) {
         isWatering = true;
         printf("Starting pump thread\n");
         water_count = 0;
@@ -179,12 +175,12 @@ void startAllThreads() {
     }
 }
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char *argv[]) {
     struct sched_param param;
     pthread_attr_t attr;
     pthread_t checkHumidityThread;
     pthread_t configReloadThread;
+    cpu_set_t cpuset;
 
     CPU_ZERO(&cpuset);
     CPU_SET(0, &cpuset);
@@ -197,53 +193,26 @@ int main(int argc, char* argv[])
     // initial config load to make sure variable is set
     load_config(&config);
 
-    /* Lock memory */
-    if(mlockall(MCL_CURRENT|MCL_FUTURE) == -1) {
-        printf("mlockall failed: %m\n");
-        exit(-2);
-    }
-
-    /* Initialize pthread attributes (default values) */
-    if (pthread_attr_init(&attr)){
-        printf("init pthread attributes failed\n");
-        goto out;
-    }
-
-    /* Set a specific stack size  */
-    if (pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN*4)){
-        printf("pthread setstacksize failed\n");
-        goto out;
-    }
-
-    /* Set scheduler policy and priority of pthread */
-    if (pthread_attr_setschedpolicy(&attr, SCHED_FIFO)) {
-        printf("pthread setschedpolicy failed\n");
-        goto out;
-    }
-    /* Use scheduling parameters of attr */
-    if(pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED)) {
-        printf("pthreaf setinheritsched failed\n");
-        goto out;
-    }
-
-    param.sched_priority = RELOAD_CONFIG_PRIO;
-    if (pthread_attr_setschedparam(&attr, &param)) {
-        printf("pthread setschedparam failed\n");
-    }
-    pthread_create(&configReloadThread, &attr, reload_config, NULL);
-    pthread_setaffinity_np(configReloadThread, sizeof(cpu_set_t), &cpuset);
-
-    param.sched_priority = CHECK_HUMIDITY_PRIO;
-    if (pthread_attr_setschedparam(&attr, &param)) {
-        printf("pthread setschedparam failed\n");
-    }
-    pthread_create(&checkHumidityThread, &attr, check_humidity, NULL);
-    pthread_setaffinity_np(configReloadThread, sizeof(cpu_set_t), &cpuset);
-
     //initialize gpios
     if (map_peripherals() == -1) {
         printf("Fehler beim Mapping des physikalischen GPIO-Registers in den virtuellen Speicherbereich.\n");
-        return (void *) -1;
+        return 1;
+    }
+
+    // lock memory to not get swapped
+    if (mlockall(MCL_CURRENT | MCL_FUTURE) == -1) {
+        printf("mlockall failed: %m\n");
+        return 1;
+    }
+
+    if (start_realtime_thread(&configReloadThread, reload_config, &cpuset, RELOAD_CONFIG_PRIO)) {
+        printf("Failed to start RT configReloadThread");
+        return 1;
+    }
+
+    if (start_realtime_thread(&checkHumidityThread, check_humidity, &cpuset, CHECK_HUMIDITY_PRIO)) {
+        printf("Failed to start RT checkHumidityThread");
+        return 1;
     }
 
     INP_GPIO(HUMIDITY_SENSOR);
@@ -258,13 +227,11 @@ int main(int argc, char* argv[])
     init_isr_func(FLOW_SENSOR, EDGE_RISING, water_count_isr, &waterCountCond, &cpuset, WATER_COUNT_PRIO);
 
     //now schedule
-    while (1)
-    {
+    while (1) {
         startAllThreads();
         sleep(10);
     }
 
-    out:
     return 0;
 }
 
