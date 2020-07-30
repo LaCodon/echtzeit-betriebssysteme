@@ -1,3 +1,6 @@
+#define _GNU_SOURCE
+
+#include <pthread.h>
 #include "gpio.h"
 
 #define STACK_SIZE (256*1024)
@@ -12,6 +15,7 @@ typedef struct {
     int timeout;
     int fd;
     unsigned int edge;
+    cond_wait_t * condWait;
 } gpioISR_t;
 
 gpioISR_t gpioISR[GPIO_COUNT];
@@ -84,6 +88,12 @@ _Noreturn static void *pthISRThread(void *x) {
     if (read(fd, buf, sizeof buf) == -1) { /* ignore errors */ }
 
     while (1) {
+        if(isr->condWait != nullptr) {
+            pthread_mutex_lock(&isr->condWait->pthreadMutex);
+            while (!isr->condWait->cond)
+                pthread_cond_wait(&isr->condWait->pthreadCond, &isr->condWait->pthreadMutex);
+            //isr->condWait->cond = false;
+        }
         // wait for file change event ("interrupt")
         retval = poll(&pfd, 1, isr->timeout);
 
@@ -101,11 +111,15 @@ _Noreturn static void *pthISRThread(void *x) {
         } else {
             printf("poll return error\n");
         }
+        if(isr->condWait != nullptr) {
+            pthread_mutex_unlock(&isr->condWait->pthreadMutex);
+        }
     }
 }
 
 // Start "interrupt" thread
-void gpioStartThread(void *f, unsigned int pin) {
+void gpioStartThread(void *f, unsigned int pin, cpu_set_t *cpuset, int priority) {
+    struct sched_param param;
     pthread_attr_t pthAttr;
 
     if (pthread_attr_init(&pthAttr)) {
@@ -116,13 +130,28 @@ void gpioStartThread(void *f, unsigned int pin) {
         printf("pthread_attr_setstacksize failed\n");
     }
 
+    /* Set scheduler policy and priority of pthread */
+    if (pthread_attr_setschedpolicy(&pthAttr, SCHED_FIFO)) {
+        printf("pthread setschedpolicy failed\n");
+    }
+    param.sched_priority = priority;
+    if (pthread_attr_setschedparam(&pthAttr, &param)) {
+        printf("pthread setschedparam failed for pin %d\n", pin);
+    }
+    /* Use scheduling parameters of attr */
+    if (pthread_attr_setinheritsched(&pthAttr, PTHREAD_EXPLICIT_SCHED)) {
+        printf("pthread setinheritsched failed\n");
+    }
+
     if (pthread_create(&gpioISR[pin].pth, &pthAttr, f, &gpioISR[pin])) {
         printf("pthread_create failed\n");
     }
+    pthread_setaffinity_np(gpioISR[pin].pth, sizeof(cpu_set_t), cpuset);
 }
 
 // Setup GPIO and start listening for interrupts
-int init_isr_func(unsigned int pin, unsigned int edge, void *f) {
+int init_isr_func(unsigned int pin, unsigned int edge, void *f,
+        cond_wait_t *condWait, cpu_set_t *cpuset, int priority) {
     int fd;
     int err;
     char buf[64];
@@ -161,7 +190,8 @@ int init_isr_func(unsigned int pin, unsigned int edge, void *f) {
     gpioISR[pin].func = f;
     gpioISR[pin].timeout = 1000;
     gpioISR[pin].edge = edge;
-    gpioStartThread(pthISRThread, pin);
+    gpioISR[pin].condWait = condWait;
+    gpioStartThread(pthISRThread, pin, cpuset, priority);
 
     if (gpioISR[pin].pth == 0) {
         return ERROR_THREAD_ALLOC_FAIL;
@@ -205,7 +235,7 @@ void counter(int pin, int level) {
     if (level != GPIO_TIMEOUT) freqCount++;
 }
 
-double read_input_freq(unsigned int pin, useconds_t sampleinterval) {
+double read_input_freq(unsigned int pin, useconds_t sampleinterval, cpu_set_t *cpuset, int priority) {
     uint64_t prev_time_value, time_value;
     double time_diff;
     double freq;
@@ -214,7 +244,7 @@ double read_input_freq(unsigned int pin, useconds_t sampleinterval) {
     freqCount = 0;
     prev_time_value = get_clock_time();
 
-    err = init_isr_func(pin, EDGE_RISING, counter);
+    err = init_isr_func(pin, EDGE_RISING, counter, nullptr, cpuset, priority);
     if (err) {
         printf("Fatal: errno: %d\n", err);
         return 0.0f;
