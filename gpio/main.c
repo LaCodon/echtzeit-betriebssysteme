@@ -34,6 +34,7 @@ volatile int water_count = 0;
 bool isWatering = false;
 struct config_data config;
 
+cpu_set_t cpuset;
 cond_wait_t checkHumidityCond = {false, PTHREAD_COND_INITIALIZER, PTHREAD_MUTEX_INITIALIZER};
 cond_wait_t reloadConfigCond = {false, PTHREAD_COND_INITIALIZER, PTHREAD_MUTEX_INITIALIZER};
 cond_wait_t waterCountCond = {false, PTHREAD_COND_INITIALIZER, PTHREAD_MUTEX_INITIALIZER};
@@ -180,7 +181,6 @@ int main(int argc, char *argv[]) {
     pthread_attr_t attr;
     pthread_t checkHumidityThread;
     pthread_t configReloadThread;
-    cpu_set_t cpuset;
 
     CPU_ZERO(&cpuset);
     CPU_SET(0, &cpuset);
