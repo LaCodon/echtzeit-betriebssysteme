@@ -6,6 +6,7 @@
 #include <sched.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 #define THREAD_STACK_SIZE (256*1024)
 
@@ -16,7 +17,22 @@
 #define ERROR_PTH_SETSCHEDPARAM_FAILED 5
 #define ERROR_PTH_THREADCREATE_FAILED 6
 
+#define nullptr ((void*)0)
+
+typedef void (*callbk_t)();
+
+typedef struct {
+    bool cond;
+    pthread_cond_t pthreadCond;
+    pthread_mutex_t pthreadMutex;
+} cond_wait_t;
+
+typedef struct {
+    callbk_t func;
+    void *arg;
+} thread_t;
+
 // Start a given function as realtime thread on cpuset with priority
-extern int start_realtime_thread(pthread_t *pthread, void *func, cpu_set_t *cpuset, int priority);
+extern int start_realtime_thread(pthread_t *pthread, thread_t *func, cpu_set_t *cpuset, int priority);
 
 #endif //GPIO_REALTIME_H

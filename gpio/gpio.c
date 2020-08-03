@@ -9,13 +9,15 @@
 typedef void (*callbk_t)();
 
 typedef struct {
+    unsigned int flankCounter;
     unsigned int gpio;
     pthread_t pth;
+    thread_t thread;
     callbk_t func;
     int timeout;
     int fd;
     unsigned int edge;
-    cond_wait_t * condWait;
+    cond_wait_t *condWait;
 } gpioISR_t;
 
 gpioISR_t gpioISR[GPIO_COUNT];
@@ -59,7 +61,7 @@ void unmap_peripherals() {
 }
 
 // Simulates interrupts via polling
-_Noreturn static void *pthISRThread(void *x) {
+_Noreturn static void pthISRThread(void *x) {
     gpioISR_t *isr = x;
     int retval;
     struct pollfd pfd;
@@ -88,70 +90,41 @@ _Noreturn static void *pthISRThread(void *x) {
     if (read(fd, buf, sizeof buf) == -1) { /* ignore errors */ }
 
     while (1) {
-        if(isr->condWait != nullptr) {
+        if (isr->condWait != nullptr) {
             pthread_mutex_lock(&isr->condWait->pthreadMutex);
             while (!isr->condWait->cond)
                 pthread_cond_wait(&isr->condWait->pthreadCond, &isr->condWait->pthreadMutex);
-            //isr->condWait->cond = false;
         }
-        // wait for file change event ("interrupt")
-        retval = poll(&pfd, 1, isr->timeout);
+        while (isr->condWait->cond) {
 
-        if (retval >= 0) {
-            // consume interrupt
-            lseek(fd, 0, SEEK_SET);
-            if (read(fd, buf, sizeof buf) == -1) { /* ignore errors */ }
+            // wait for file change event ("interrupt")
+            retval = poll(&pfd, 1, isr->timeout);
 
-            if (retval) {
-                if (isr->edge == EDGE_RISING) level = GPIO_ON; else level = GPIO_OFF;
-            } else level = GPIO_TIMEOUT;
+            if (retval >= 0) {
+                // consume interrupt
+                lseek(fd, 0, SEEK_SET);
+                if (read(fd, buf, sizeof buf) == -1) { /* ignore errors */ }
 
-            // call user defined handler
-            (isr->func)(isr->gpio, level);
-        } else {
-            printf("poll return error\n");
+                if (retval) {
+                    if (isr->edge == EDGE_RISING) level = GPIO_ON; else level = GPIO_OFF;
+                } else level = GPIO_TIMEOUT;
+
+                // call user defined handler
+                (isr->func)(isr->gpio, level);
+            } else {
+                printf("poll return error\n");
+            }
+
         }
-        if(isr->condWait != nullptr) {
+        if (isr->condWait != nullptr) {
             pthread_mutex_unlock(&isr->condWait->pthreadMutex);
         }
     }
 }
 
-// Start "interrupt" thread
-void gpioStartThread(void *f, unsigned int pin, cpu_set_t *cpuset, int priority) {
-    struct sched_param param;
-    pthread_attr_t pthAttr;
-
-    if (pthread_attr_init(&pthAttr)) {
-        printf("pthread_attr_init failed\n");
-    }
-
-    if (pthread_attr_setstacksize(&pthAttr, STACK_SIZE)) {
-        printf("pthread_attr_setstacksize failed\n");
-    }
-
-    /* Set scheduler policy and priority of pthread */
-    if (pthread_attr_setschedpolicy(&pthAttr, SCHED_FIFO)) {
-        printf("pthread setschedpolicy failed\n");
-    }
-    param.sched_priority = priority;
-    if (pthread_attr_setschedparam(&pthAttr, &param)) {
-        printf("pthread setschedparam failed for pin %d\n", pin);
-    }
-    /* Use scheduling parameters of attr */
-    if (pthread_attr_setinheritsched(&pthAttr, PTHREAD_EXPLICIT_SCHED)) {
-        printf("pthread setinheritsched failed\n");
-    }
-
-    if (pthread_create(&gpioISR[pin].pth, &pthAttr, f, &gpioISR[pin])) {
-        printf("pthread_create failed\n");
-    }
-    pthread_setaffinity_np(gpioISR[pin].pth, sizeof(cpu_set_t), cpuset);
-}
-
 // Setup GPIO and start listening for interrupts
 int init_isr_func(unsigned int pin, unsigned int edge, void *f,
-        cond_wait_t *condWait, cpu_set_t *cpuset, int priority) {
+                  cond_wait_t *condWait, cpu_set_t *cpuset, int priority) {
     int fd;
     int err;
     char buf[64];
@@ -186,12 +159,15 @@ int init_isr_func(unsigned int pin, unsigned int edge, void *f,
     close(fd);
 
     // start listening for interrupts on pin
+    thread_t thread = {pthISRThread, &gpioISR[pin]};
     gpioISR[pin].gpio = pin;
+    gpioISR[pin].thread = thread;
     gpioISR[pin].func = f;
     gpioISR[pin].timeout = 1000;
     gpioISR[pin].edge = edge;
     gpioISR[pin].condWait = condWait;
-    gpioStartThread(pthISRThread, pin, cpuset, priority);
+
+    start_realtime_thread(&gpioISR[pin].pth, &gpioISR[pin].thread, cpuset, priority);
 
     if (gpioISR[pin].pth == 0) {
         return ERROR_THREAD_ALLOC_FAIL;
@@ -208,7 +184,7 @@ int del_isr_func(unsigned int pin) {
     pthread_join(gpioISR[pin].pth, NULL);
 
     gpioISR[pin].gpio = 0;
-    gpioISR[pin].func = 0;
+    gpioISR[pin].thread = (thread_t) {0, nullptr};
     gpioISR[pin].timeout = 0;
     gpioISR[pin].edge = 0;
     close(gpioISR[pin].fd);
@@ -227,36 +203,32 @@ uint64_t get_clock_time() {
         return 0;
 }
 
-// Helper var for read_input_freq()
-volatile int freqCount = 0;
-
 // Helper ISR for read_input_freq()
-void counter(int pin, int level) {
-    if (level != GPIO_TIMEOUT) freqCount++;
+void freq_counter(int pin, int level) {
+    if (level != GPIO_TIMEOUT) gpioISR[pin].flankCounter++;
 }
 
-double read_input_freq(unsigned int pin, useconds_t sampleinterval, cpu_set_t *cpuset, int priority) {
+double read_input_freq(int pin, useconds_t sampleinterval, cond_wait_t *cond) {
     uint64_t prev_time_value, time_value;
     double time_diff;
     double freq;
     int err;
 
-    freqCount = 0;
+    gpioISR[pin].flankCounter = 0;
     prev_time_value = get_clock_time();
 
-    err = init_isr_func(pin, EDGE_RISING, counter, nullptr, cpuset, priority);
-    if (err) {
-        printf("Fatal: errno: %d\n", err);
-        return 0.0f;
-    }
+    cond->cond = true;
+    pthread_cond_signal(&cond->pthreadCond);
+    //err = init_isr_func(pin, EDGE_RISING, counter, nullptr, cpuset, priority);
     // count interrupts for sampleinterval us
     usleep(sampleinterval);
-    del_isr_func(pin);
+    //del_isr_func(pin);
 
+    cond->cond = false;
     time_value = get_clock_time(); // in us
     time_diff = (time_value - prev_time_value); // in us
 
-    freq = ((freqCount / time_diff) * 1000000);
+    freq = ((gpioISR[pin].flankCounter / time_diff) * 1000000);
 
 
     return freq;

@@ -1,18 +1,21 @@
 
 #include "realtime.h"
 
-typedef void (*callbk_t)();
 
 void *thread_start_helper(void *arg) {
     // sleep to give system time to migrate thread to correct cpu
     usleep(300);
 
     // call user defined thread function
-    callbk_t func = arg;
-    func();
+    thread_t *thread = arg;
+    if (thread->arg == nullptr) {
+        thread->func();
+    } else {
+        thread->func(thread->arg);
+    }
 }
 
-int start_realtime_thread(pthread_t *pthread, void *func, cpu_set_t *cpuset, int priority) {
+int start_realtime_thread(pthread_t *pthread, thread_t *func, cpu_set_t *cpuset, int priority) {
     struct sched_param param;
     pthread_attr_t attr;
 

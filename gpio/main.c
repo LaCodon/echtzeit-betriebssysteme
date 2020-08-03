@@ -20,8 +20,8 @@
 
 #define WATER_COUNT_PRIO 80
 #define RELOAD_CONFIG_PRIO 60
-#define CHECK_HUMIDITY_PRIO 70
-#define READ_HUMIDITY_FREQUENCY_PRIO 72
+#define CHECK_HUMIDITY_PRIO 75
+#define READ_HUMIDITY_FREQUENCY_PRIO 70
 
 // The datasheet says 5880 square waves per litre but I measured something different
 #define RISING_EDGE_PER_LITRE 4880
@@ -38,6 +38,7 @@ cpu_set_t cpuset;
 cond_wait_t checkHumidityCond = {false, PTHREAD_COND_INITIALIZER, PTHREAD_MUTEX_INITIALIZER};
 cond_wait_t reloadConfigCond = {false, PTHREAD_COND_INITIALIZER, PTHREAD_MUTEX_INITIALIZER};
 cond_wait_t waterCountCond = {false, PTHREAD_COND_INITIALIZER, PTHREAD_MUTEX_INITIALIZER};
+cond_wait_t readFrequencyCond = {false, PTHREAD_COND_INITIALIZER, PTHREAD_MUTEX_INITIALIZER};
 
 void water_count_isr(int pin, int level) {
     if (level == GPIO_ON) {
@@ -52,7 +53,7 @@ void water_count_isr(int pin, int level) {
     }
 }
 
-_Noreturn void *reload_config() {
+_Noreturn void reload_config() {
     while (1) {
         pthread_mutex_lock(&reloadConfigCond.pthreadMutex);
         while (!reloadConfigCond.cond)
@@ -141,7 +142,7 @@ _Noreturn void *reload_config() {
 }*/
 
 // call
-_Noreturn void *check_humidity() {
+_Noreturn void check_humidity() {
     double freq;
     while (1) {
         pthread_mutex_lock(&checkHumidityCond.pthreadMutex);
@@ -149,7 +150,7 @@ _Noreturn void *check_humidity() {
             pthread_cond_wait(&checkHumidityCond.pthreadCond, &checkHumidityCond.pthreadMutex);
         checkHumidityCond.cond = false;
         //get frequency from sensor
-        freq = read_input_freq(HUMIDITY_SENSOR, DEFAULT_SAMPLE_TIME, &cpuset, READ_HUMIDITY_FREQUENCY_PRIO) * 16;
+        freq = read_input_freq(HUMIDITY_SENSOR, DEFAULT_SAMPLE_TIME, &readFrequencyCond) * 16;
 #ifdef VERBOSE
         printf("%.2f Hz\n", freq);
 #endif
@@ -177,10 +178,8 @@ void startAllThreads() {
 }
 
 int main(int argc, char *argv[]) {
-    struct sched_param param;
-    pthread_attr_t attr;
-    pthread_t checkHumidityThread;
-    pthread_t configReloadThread;
+    pthread_t checkHumidityPThread;
+    pthread_t configReloadPThread;
 
     CPU_ZERO(&cpuset);
     CPU_SET(0, &cpuset);
@@ -205,12 +204,14 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    if (start_realtime_thread(&configReloadThread, reload_config, &cpuset, RELOAD_CONFIG_PRIO)) {
+    thread_t configReloadThread = {reload_config, nullptr};
+    if (start_realtime_thread(&configReloadPThread, &configReloadThread, &cpuset, RELOAD_CONFIG_PRIO)) {
         printf("Failed to start RT configReloadThread");
         return 1;
     }
 
-    if (start_realtime_thread(&checkHumidityThread, check_humidity, &cpuset, CHECK_HUMIDITY_PRIO)) {
+    thread_t checkHumidityThread = {check_humidity, nullptr};
+    if (start_realtime_thread(&checkHumidityPThread, &checkHumidityThread, &cpuset, CHECK_HUMIDITY_PRIO)) {
         printf("Failed to start RT checkHumidityThread");
         return 1;
     }
@@ -225,6 +226,8 @@ int main(int argc, char *argv[]) {
     GPIO_SET |= 1 << PUMP;
 
     init_isr_func(FLOW_SENSOR, EDGE_RISING, water_count_isr, &waterCountCond, &cpuset, WATER_COUNT_PRIO);
+    init_isr_func(HUMIDITY_SENSOR, EDGE_RISING, freq_counter, &readFrequencyCond, &cpuset,
+                  READ_HUMIDITY_FREQUENCY_PRIO);
 
     //now schedule
     while (1) {

@@ -18,6 +18,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "realtime.h"
+
 // start of physical address space for peripherals
 #define BCM2837_PERI_BASE   0x3f000000
 // start of GPIO memory space
@@ -41,13 +43,6 @@
 
 #define DEFAULT_SAMPLE_TIME     50000
 
-#define nullptr ((void*)0)
-
-typedef struct {
-    bool cond;
-    pthread_cond_t pthreadCond;
-    pthread_mutex_t pthreadMutex;
-} cond_wait_t;
 
 // Periphery access struct
 struct bcm2837_peripheral {
@@ -79,13 +74,15 @@ extern void unmap_peripherals();
 
 // Listen for new interrupts on pin
 extern int init_isr_func(unsigned int pin, unsigned int edge, void *f,
-        cond_wait_t *condWait, cpu_set_t *cpuset, int priority);
+                         cond_wait_t *condWait, cpu_set_t *cpuset, int priority);
 
 // Stop listening for interrupts
 extern int del_isr_func(unsigned int pin);
 
 // Measure input frequency on pin in Hz for sampleintervall us
-extern double read_input_freq(unsigned int pin, useconds_t sampleinterval, cpu_set_t *cpuset, int priority);
+extern double read_input_freq(int pin, useconds_t sampleinterval, cond_wait_t* cond);
+
+extern void freq_counter(int pin, int level);
 
 // Get current monotonic clock time in us
 extern uint64_t get_clock_time();
