@@ -2,6 +2,7 @@
 #pragma ide diagnostic ignored "hicpp-signed-bitwise"
 
 #define _GNU_SOURCE
+#define VERBOSE 1
 
 #include <sys/mman.h>
 #include <stdbool.h>
@@ -28,8 +29,6 @@
 // Time to not water again after watering in seconds
 #define NO_WATER_AFTER_WATERING 120
 
-#define VERBOSE
-
 volatile int water_count = 0;
 bool isWatering = false;
 struct config_data config;
@@ -43,6 +42,7 @@ cond_wait_t readFrequencyCond = {false, PTHREAD_COND_INITIALIZER, PTHREAD_MUTEX_
 void water_count_isr(int pin, int level) {
     if (level == GPIO_ON) {
         water_count++;
+        printf(".");
 
         if (((double) water_count / RISING_EDGE_PER_LITRE) * (double) 1000 >= config.milliliters) {
             // stop pump
@@ -58,13 +58,13 @@ _Noreturn void reload_config() {
         pthread_mutex_lock(&reloadConfigCond.pthreadMutex);
         while (!reloadConfigCond.cond)
             pthread_cond_wait(&reloadConfigCond.pthreadCond, &reloadConfigCond.pthreadMutex);
+        PRINT_START(4)
         reloadConfigCond.cond = false;
-        // reload config from calibration.csv every 5 seconds
-        sleep(5);
         load_config(&config);
 #ifdef VERBOSE
         printf("%ld - %ld - %ld\n", config.arid, config.humid, config.milliliters);
 #endif
+        PRINT_END(4)
         pthread_mutex_unlock(&reloadConfigCond.pthreadMutex);
     }
 }
@@ -148,6 +148,7 @@ _Noreturn void check_humidity() {
         pthread_mutex_lock(&checkHumidityCond.pthreadMutex);
         while (!checkHumidityCond.cond)
             pthread_cond_wait(&checkHumidityCond.pthreadCond, &checkHumidityCond.pthreadMutex);
+        PRINT_START(8)
         checkHumidityCond.cond = false;
         //get frequency from sensor
         freq = read_input_freq(HUMIDITY_SENSOR, DEFAULT_SAMPLE_TIME, &readFrequencyCond) * 16;
@@ -159,6 +160,7 @@ _Noreturn void check_humidity() {
         if (freq > config.arid && !waterCountCond.cond) {
             waterCountCond.cond = true;
         }
+        PRINT_END(8)
         pthread_mutex_unlock(&checkHumidityCond.pthreadMutex);
     }
 }
@@ -229,8 +231,12 @@ int main(int argc, char *argv[]) {
     init_isr_func(HUMIDITY_SENSOR, EDGE_RISING, freq_counter, &readFrequencyCond, &cpuset,
                   READ_HUMIDITY_FREQUENCY_PRIO);
 
+    // wait for thread initialization
+    usleep(300);
+
     //now schedule
     while (1) {
+        printf("============================\n");
         startAllThreads();
         sleep(10);
     }

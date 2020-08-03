@@ -19,6 +19,18 @@
 
 #define nullptr ((void*)0)
 
+#ifndef VERBOSE
+#define VERBOSE 1
+#endif
+
+#ifdef VERBOSE
+#define PRINT_START(i) printf("Started #%d\n", i);
+#define PRINT_END(i) printf("Ended #%d\n", i);
+#else
+#define PRINT_START(i) nullptr;
+#define PRINT_END(i) nullptr;
+#endif
+
 typedef void (*callbk_t)();
 
 typedef struct {

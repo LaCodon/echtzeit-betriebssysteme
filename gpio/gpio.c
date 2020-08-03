@@ -3,7 +3,6 @@
 #include <pthread.h>
 #include "gpio.h"
 
-#define STACK_SIZE (256*1024)
 #define GPIO_COUNT 50
 
 typedef void (*callbk_t)();
@@ -95,6 +94,7 @@ _Noreturn static void pthISRThread(void *x) {
             while (!isr->condWait->cond)
                 pthread_cond_wait(&isr->condWait->pthreadCond, &isr->condWait->pthreadMutex);
         }
+        PRINT_START(isr->gpio)
         while (isr->condWait->cond) {
 
             // wait for file change event ("interrupt")
@@ -116,6 +116,7 @@ _Noreturn static void pthISRThread(void *x) {
             }
 
         }
+        PRINT_END(isr->gpio)
         if (isr->condWait != nullptr) {
             pthread_mutex_unlock(&isr->condWait->pthreadMutex);
         }
