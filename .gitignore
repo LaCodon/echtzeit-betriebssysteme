@@ -3,3 +3,6 @@
 /gpio/cmake-build-debug
 /ui/venv
 /ui/.vscode
+home
+.vs
+out

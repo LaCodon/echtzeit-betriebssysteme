@@ -19,6 +19,8 @@
 // pump
 #define PUMP 27
 
+#define PERIODE_DURATION 120
+#define MAIN_PRIO 50
 #define WATER_COUNT_PRIO 80
 #define RELOAD_CONFIG_PRIO 60
 #define CHECK_HUMIDITY_PRIO 75
@@ -179,12 +181,21 @@ void startAllThreads() {
     }
 }
 
+_Noreturn void main_thread() {
+    while (1) {
+		printf("============================\n");
+        startAllThreads();
+        sleep(PERIODE_DURATION);
+    }
+}
+
 int main(int argc, char *argv[]) {
     pthread_t checkHumidityPThread;
     pthread_t configReloadPThread;
+    pthread_t mainPThread;
 
     CPU_ZERO(&cpuset);
-    CPU_SET(0, &cpuset);
+    CPU_SET(3, &cpuset);
 
 
     // make sure calibration.csv and test-hydro.csv exist in this directory
@@ -231,15 +242,14 @@ int main(int argc, char *argv[]) {
     init_isr_func(HUMIDITY_SENSOR, EDGE_RISING, freq_counter, &readFrequencyCond, &cpuset,
                   READ_HUMIDITY_FREQUENCY_PRIO);
 
-    // wait for thread initialization
-    usleep(300);
 
-    //now schedule
-    while (1) {
-        printf("============================\n");
-        startAllThreads();
-        sleep(10);
+    thread_t mainThread = {main_thread, nullptr};
+    if (start_realtime_thread(&mainPThread, &mainThread, &cpuset, MAIN_PRIO)) {
+        printf("Failed to start RT checkHumidityThread");
+        return 1;
     }
+    
+    pthread_join(mainPThread, NULL);
 
     return 0;
 }
