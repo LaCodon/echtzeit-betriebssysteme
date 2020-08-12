@@ -9,7 +9,11 @@ The library supports the following use-cases:
 * Measure frequencies on GPIOs
 * Create ISRs to react to rising or falling edges on GPIOs
 
-## Macros
+# Realtime Library
+
+The realtime.c and realtime.h files contain a few functions which are very useful for creating realtime threads. Those threads are then used in the GPIO Library to make it work in realtime.
+
+# Macros for GPIO handling
 
 The Macros can be used to set the GPIO mode and to read / write to it.
 The code is taken from [1].
@@ -66,76 +70,8 @@ if (GPIO_READ(18)) {
 }
 ```
 
-## Functions
-
-Partially taken from [3].
-
-### map_peripherals
-
-Maps peripheral memory (start address taken from [2]). Has to be called
-with root privileges and before any GPIO interaction happens.
-
-```c
-if (map_peripherals() == -1) {
-    printf("Fehler beim Mapping des physikalischen GPIO-Registers in den virtuellen Speicherbereich.\n");
-    return -1;
-}
-```
-
-### unmap_peripherals
-
-Unmaps peripherals. No  more GPIO interaction is possible after this call.
-
-```c
-unmap_peripherals();
-```
-
-### init_isr_func
-
-Create ISR for input flanks.
-
-```c
-// trigger isr on rising edges on GPIO 18
-init_isr_func(18, EDGE_RISING, isr);
-
-void isr(int pin, int level) {
-    if (level == GPIO_ON) {
-        // do something
-    }
-}
-```
-
-### del_isr_func
-
-Deactivate ISR and free resources.
-
-```c
-// deactivate ISR on GPIO 18
-del_isr_func(18);
-```
-
-### read_input_freq
-
-Measure input frequency on GPIO in Hz for sampleintervall us
-
-```c
-// read frequency on GPIO 18
-double freq = read_input_freq(18, DEFAULT_SAMPLE_TIME);
-printf("%.2f Hz\n", freq);
-```
-
-### get_clock_time
-
-Get current **monotonic** clock time in us.
-
-```c
-get_clock_time();
-```
-
 ## Resources
 
 [1] http://pieter-jan.com/node/15
 
 [2] [BCM2837-ARM-Peripherals.-.Revised.-.V2-1.pdf](./BCM2837-ARM-Peripherals.-.Revised.-.V2-1.pdf)
-
-[3] https://github.com/joan2937/pigpio/blob/master/pigpio.c
