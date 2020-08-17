@@ -2,7 +2,6 @@
 #pragma ide diagnostic ignored "hicpp-signed-bitwise"
 
 #define _GNU_SOURCE
-#define VERBOSE 1
 
 #include <sys/mman.h>
 #include <stdbool.h>
@@ -20,7 +19,7 @@
 #define PUMP 27
 
 #define PERIODE_DURATION 120
-#define MAIN_PRIO 50
+#define MAIN_PRIO 90
 #define WATER_COUNT_PRIO 80
 #define RELOAD_CONFIG_PRIO 60
 #define CHECK_HUMIDITY_PRIO 75
@@ -28,8 +27,6 @@
 
 // The datasheet says 5880 square waves per litre but I measured something different
 #define RISING_EDGE_PER_LITRE 4880
-// Time to not water again after watering in seconds
-#define NO_WATER_AFTER_WATERING 120
 
 volatile int water_count = 0;
 bool isWatering = false;
@@ -56,101 +53,49 @@ void water_count_isr(int pin, int level) {
 }
 
 _Noreturn void reload_config() {
+#ifdef TIMER
+    struct timespec startTime, endTime, diffTime;
+    clockid_t threadClockId;
+    pthread_getcpuclockid(pthread_self(), &threadClockId);
+#endif
     while (1) {
         pthread_mutex_lock(&reloadConfigCond.pthreadMutex);
         while (!reloadConfigCond.cond)
             pthread_cond_wait(&reloadConfigCond.pthreadCond, &reloadConfigCond.pthreadMutex);
         PRINT_START(4)
+#ifdef TIMER
+        clock_gettime(threadClockId, &startTime);
+#endif
         reloadConfigCond.cond = false;
         load_config(&config);
 #ifdef VERBOSE
         printf("%ld - %ld - %ld\n", config.arid, config.humid, config.milliliters);
+#endif
+#ifdef TIMER
+        clock_gettime(threadClockId, &endTime);
+        diffTime = diff(startTime, endTime);
+        printf("Config Thread time: %ld:%ld\n", diffTime.tv_sec, diffTime.tv_nsec);
 #endif
         PRINT_END(4)
         pthread_mutex_unlock(&reloadConfigCond.pthreadMutex);
     }
 }
 
-/*_Noreturn void * start(void *pVoid) {
-
-    if (map_peripherals() == -1) {
-        printf("Fehler beim Mapping des physikalischen GPIO-Registers in den virtuellen Speicherbereich.\n");
-        return (void *) -1;
-    }
-
-    INP_GPIO(HUMIDITY_SENSOR);
-    INP_GPIO(FLOW_SENSOR);
-
-    INP_GPIO(PUMP);
-    OUT_GPIO(PUMP);
-
-    // stop pump
-    GPIO_SET |= 1 << PUMP;
-
-    double freq = 0;
-    int no_water_count = 0;
-
-    while (1) {
-        if (no_water_count > 0)
-            no_water_count--;
-
-        // check humidity
-        if ((long int) freq > config.arid && no_water_count == 0) {
-            // we have to water the plant
-
-            // start measuring water flow
-            water_count = 0;
-            init_isr_func(FLOW_SENSOR, EDGE_RISING, water_count_isr, nullptr);
-
-            // start pump
-            GPIO_CLR |= 1 << PUMP;
-
-            while (1) {
-                freq = read_input_freq(HUMIDITY_SENSOR, DEFAULT_SAMPLE_TIME) * 16;
-                printf("%.2f Hz\n", freq);
-                send_freq_to_ui(freq);
-
-                double millilitre = ((double) water_count / RISING_EDGE_PER_LITRE) * (double) 1000;
-                printf("%.0f Millilitre\n", millilitre);
-
-                if (millilitre >= config.milliliters) {
-                    break;
-                }
-
-                // we have to substract DEFAULT_SAMPLE_TIME because this
-                // is the time the read_input_freq function needs for
-                // the frequency measurement
-                usleep(1 * 1000 * 1000 - DEFAULT_SAMPLE_TIME);
-            }
-
-            // stop water flow measurement
-            del_isr_func(FLOW_SENSOR);
-
-            // don't water for longer period to let water soak into earth
-            no_water_count = NO_WATER_AFTER_WATERING;
-        } else {
-            // just send humidity to dashboard
-            freq = read_input_freq(HUMIDITY_SENSOR, DEFAULT_SAMPLE_TIME) * 16;
-            printf("%.2f Hz\n", freq);
-            send_freq_to_ui(freq);
-
-            usleep(1 * 1000 * 1000 - DEFAULT_SAMPLE_TIME);
-        }
-    }
-
-    unmap_peripherals();
-
-    return 0;
-}*/
-
-// call
 _Noreturn void check_humidity() {
+#ifdef TIMER
+    struct timespec startTime, endTime, diffTime;
+    clockid_t threadClockId;
+    pthread_getcpuclockid(pthread_self(), &threadClockId);
+#endif
     double freq;
     while (1) {
         pthread_mutex_lock(&checkHumidityCond.pthreadMutex);
         while (!checkHumidityCond.cond)
             pthread_cond_wait(&checkHumidityCond.pthreadCond, &checkHumidityCond.pthreadMutex);
         PRINT_START(8)
+#ifdef TIMER
+        clock_gettime(threadClockId, &startTime);
+#endif
         checkHumidityCond.cond = false;
         //get frequency from sensor
         freq = read_input_freq(HUMIDITY_SENSOR, DEFAULT_SAMPLE_TIME, &readFrequencyCond) * 16;
@@ -162,6 +107,11 @@ _Noreturn void check_humidity() {
         if (freq > config.arid && !waterCountCond.cond) {
             waterCountCond.cond = true;
         }
+#ifdef TIMER
+        clock_gettime(threadClockId, &endTime);
+        diffTime = diff(startTime, endTime);
+        printf("Humidity Thread time: %ld:%ld\n", diffTime.tv_sec, diffTime.tv_nsec);
+#endif
         PRINT_END(8)
         pthread_mutex_unlock(&checkHumidityCond.pthreadMutex);
     }
@@ -182,10 +132,30 @@ void startAllThreads() {
 }
 
 _Noreturn void main_thread() {
+#ifdef TIMER
+    struct timespec startTime, endTime, diffTime;
+    clockid_t threadClockId;
+    pthread_getcpuclockid(pthread_self(), &threadClockId);
+#endif
     while (1) {
+#ifdef TIMER
+        clock_gettime(threadClockId, &startTime);
+#endif
 		printf("============================\n");
         startAllThreads();
         sleep(PERIODE_DURATION);
+        // stop pumping because of deadline
+        if(isWatering)
+        {
+            GPIO_SET |= 1 << PUMP;
+            waterCountCond.cond = false;
+            isWatering = false;
+        }
+#ifdef TIMER
+        clock_gettime(threadClockId, &endTime);
+        diffTime = diff(startTime, endTime);
+        printf("Main Thread time: %ld:%ld\n", diffTime.tv_sec, diffTime.tv_nsec);
+#endif
     }
 }
 

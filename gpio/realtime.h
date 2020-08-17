@@ -19,9 +19,8 @@
 
 #define nullptr ((void*)0)
 
-#ifndef VERBOSE
-#define VERBOSE 1
-#endif
+#define VERBOSE
+#define TIMER
 
 #ifdef VERBOSE
 #define PRINT_START(i) printf("Started #%d\n", i);
@@ -46,5 +45,6 @@ typedef struct {
 
 // Start a given function as realtime thread on cpuset with priority
 extern int start_realtime_thread(pthread_t *pthread, thread_t *func, cpu_set_t *cpuset, int priority);
+extern struct timespec diff(struct timespec start, struct timespec end);
 
 #endif //GPIO_REALTIME_H

@@ -61,6 +61,11 @@ void unmap_peripherals() {
 
 // Simulates interrupts via polling
 _Noreturn static void pthISRThread(void *x) {
+#ifdef TIMER
+    struct timespec startTime, endTime, diffTime;
+    clockid_t threadClockId;
+    pthread_getcpuclockid(pthread_self(), &threadClockId);
+#endif
     gpioISR_t *isr = x;
     int retval;
     struct pollfd pfd;
@@ -95,6 +100,9 @@ _Noreturn static void pthISRThread(void *x) {
                 pthread_cond_wait(&isr->condWait->pthreadCond, &isr->condWait->pthreadMutex);
         }
         PRINT_START(isr->gpio)
+#ifdef TIMER
+        clock_gettime(threadClockId, &startTime);
+#endif
         while (isr->condWait->cond) {
 
             // wait for file change event ("interrupt")
@@ -117,6 +125,11 @@ _Noreturn static void pthISRThread(void *x) {
 
         }
         PRINT_END(isr->gpio)
+#ifdef TIMER
+        clock_gettime(threadClockId, &endTime);
+        diffTime = diff(startTime, endTime);
+        printf("GPIO %i time: %ld:%ld\n", isr->gpio, diffTime.tv_sec, diffTime.tv_nsec);
+#endif
         if (isr->condWait != nullptr) {
             pthread_mutex_unlock(&isr->condWait->pthreadMutex);
         }
